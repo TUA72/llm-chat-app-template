@@ -1,1 +1,164 @@
+// ----------------- 工具函数：Hex 编码 -----------------
+function bufferToHex(buffer) {
+    return [...new Uint8Array(buffer)]
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("");
+}
 
+// ----------------- 生成 GateIO API v4 签名头 -----------------
+async function generateGateIOSignHeaders(apiKey, apiSecret, method, urlPath, queryString, payload) {
+    const encoder = new TextEncoder();
+
+    // 1. 生成 Unix 毫秒级时间戳
+    const timestamp = Date.now().toString();
+
+    // 2. 计算 SHA512(payload)
+    const payloadHash = await crypto.subtle.digest(
+        "SHA-512",
+        encoder.encode(payload || "")
+    );
+    const hexPayloadHash = bufferToHex(payloadHash);
+
+    // 3. 按 APIv4 格式拼接 Sign String
+    const signString =
+        method.toUpperCase() + "\n" +
+        urlPath + "\n" +
+        (queryString || "") + "\n" +
+        hexPayloadHash + "\n" +
+        timestamp;
+
+    // 4. 计算 HMAC-SHA512
+    const key = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(apiSecret),
+        { name: "HMAC", hash: "SHA-512" },
+        false,
+        ["sign"]
+    );
+
+    const signature = bufferToHex(
+        await crypto.subtle.sign("HMAC", key, encoder.encode(signString))
+    );
+
+    // 5. 返回必须的请求头
+    return {
+        "Content-Type": "application/json",
+        "X-Gate-Key": apiKey,
+        "X-Gate-Sign": signature,
+        "X-Gate-Timestamp": timestamp
+    };
+}
+
+// ----------------- Cloudflare Worker 主体 -----------------
+
+// API Key 和 Secret，建议部署时使用 env 变量
+const API_KEY = 'c4850c17683965618c489b9d3c35caad';      
+const API_SECRET = '740ca1f499f76c5bfcf6d6499821556082f90d4fc0cb3cc9a0c5b610c469a110';  
+
+const HOST = "https://fx-api-testnet.gateio.ws";
+const ORDER_URL_PATH = "/api/v4/mock/futures/usdt/orders"; 
+const ACCOUNT_URL_PATH = "/api/v4/futures/usdt/accounts"; // 账户查询接口
+
+// ----------------- 辅助函数：模拟获取当前合约价格 -----------------
+async function getMockPrice(contract) {
+    if (contract === "ETH_USDT") return 3000.0;
+    return 1; 
+}
+
+// ----------------- 计算最大可开仓数量 -----------------
+async function getMaxSizeForContract(contract, apiKey, apiSecret) {
+    const method = 'GET';
+    const queryString = ""; // GET 请求没有参数
+
+    // 获取账户余额信息
+    const signHeaders = await generateGateIOSignHeaders(
+        apiKey, apiSecret, method, ACCOUNT_URL_PATH, queryString, ""
+    );
+
+    const accountRes = await fetch(HOST + ACCOUNT_URL_PATH, {
+        method: method,
+        headers: signHeaders
+    });
+    
+    if (!accountRes.ok) throw new Error(`Failed to fetch account info: ${accountRes.statusText}`);
+    const accountData = await accountRes.json();
+    
+    // 可用保证金字段
+    const availableMargin = parseFloat(accountData.available_margin || accountData.amount);
+    if (isNaN(availableMargin) || availableMargin <= 0) {
+        throw new Error("Available margin is zero or not found.");
+    }
+    
+    // 假设杠杆 10 倍
+    const leverage = 10; 
+    
+    // 获取当前价格
+    const currentPrice = await getMockPrice(contract); 
+
+    // 计算最大开仓数量
+    const maxContractValue = availableMargin * leverage;
+    const maxSize = Math.floor(maxContractValue / currentPrice); 
+    
+    console.log(`Available Margin: ${availableMargin}, Max Size: ${maxSize}`);
+    return maxSize > 0 ? maxSize : 0;
+}
+
+// ----------------- Worker 主入口 -----------------
+export default {
+    async fetch(request) {
+        if (request.method !== 'POST') {
+            return new Response(`Gate.io Worker is listening. Please send a POST request to trigger the 'open_long' action.`, { status: 200 });
+        }
+
+        const contract = "ETH_USDT";
+        const method = 'POST';
+        const fullUrl = ORDER_URL_PATH;
+        const queryString = "";
+
+        try {
+            // 计算最大可开仓数量
+            const orderSize = await getMaxSizeForContract(contract, API_KEY, API_SECRET);
+
+            if (orderSize === 0) {
+                return new Response(`Cannot open position: calculated size for ${contract} is zero. Check available margin.`, { status: 200 });
+            }
+
+            // 下单请求体
+            const bodyObj = { 
+                contract: contract, 
+                size: orderSize,      // 最大 size
+                price: "0",           // 市价单
+                tif: "ioc"            // 立即成交或取消
+            };
+            const requestPayload = JSON.stringify(bodyObj);
+
+            // 生成签名头部
+            const signHeaders = await generateGateIOSignHeaders(
+                API_KEY, 
+                API_SECRET, 
+                method,
+                fullUrl, 
+                queryString,
+                requestPayload
+            );
+            
+            // 发送下单请求
+            const apiResponse = await fetch(HOST + fullUrl, {
+                method: method,
+                headers: signHeaders,
+                body: requestPayload
+            });
+
+            const responseBody = await apiResponse.text();
+
+            return new Response(`Order placed for ${contract}. Gate.io Status: ${apiResponse.status}. Response: ${responseBody}`, { 
+                status: apiResponse.status,
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (e) {
+            console.error('Trading Error:', e);
+            return new Response(`Trading Error: ${e.message}`, { status: 500 });
+        }
+    }
+};
