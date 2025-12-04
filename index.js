@@ -1,1 +1,3 @@
-
+{
+  "main": "src/worker.js"
+}
