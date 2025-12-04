@@ -1,1 +1,5 @@
-
+{
+  "name": "gate-worker",
+  "main": "index.js",
+  "compatibility_date": "2025-12-04"
+}
