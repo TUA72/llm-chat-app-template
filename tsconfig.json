@@ -52,8 +52,8 @@ async function generateGateIOSignHeaders(apiKey, apiSecret, method, urlPath, que
 // ----------------- Cloudflare Worker 主体 -----------------
 
 // API Key 和 Secret，建议部署时使用 env 变量
-const API_KEY = 'c4850c17683965618c489b9d3c35caad';      
-const API_SECRET = '740ca1f499f76c5bfcf6d6499821556082f90d4fc0cb3cc9a0c5b610c469a110';  
+const API_KEY = 'ec9467d109b068324867c2557b84f3bb';      
+const API_SECRET = 'faee85ade5de296e5848ef9663a87bc28912bb3115ecbe7ffd79fbffefeb761a';  
 
 const HOST = "https://fx-api-testnet.gateio.ws";
 const ORDER_URL_PATH = "/api/v4/mock/futures/usdt/orders"; 
