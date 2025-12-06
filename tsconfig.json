@@ -52,11 +52,11 @@ async function generateGateIOSignHeaders(apiKey, apiSecret, method, urlPath, que
 // ----------------- Cloudflare Worker 主体 -----------------
 
 // API Key 和 Secret，建议部署时使用 env 变量
-const API_KEY = 'ec9467d109b068324867c2557b84f3bb';      
-const API_SECRET = 'faee85ade5de296e5848ef9663a87bc28912bb3115ecbe7ffd79fbffefeb761a';  
+const API_KEY = '5bdbf7cf536fd1f405c9c28f45b60113';      
+const API_SECRET = '4b3a365988b2ee19d43f20ea51e3c22380f1b952afd3e74293b110da6c03803f';  
 
-const HOST = "https://fx-api-testnet.gateio.ws";
-const ORDER_URL_PATH = "/api/v4/mock/futures/usdt/orders"; 
+const HOST = "https://api.gateio.ws";
+const ORDER_URL_PATH = "/api/v4/futures/usdt/orders"; 
 const ACCOUNT_URL_PATH = "/api/v4/futures/usdt/accounts"; // 账户查询接口
 
 // ----------------- 辅助函数：模拟获取当前合约价格 -----------------
