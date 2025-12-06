@@ -1,1 +1,113 @@
+API签名说明
+在官网个人中心申请 APIv4 Key ，并确保该 Key 拥有对应操作的读写权限。
+在发送请求头部传入 ，即 APIv4 密钥对的 KeyKEY
+在发送请求头部传入 ，即请求发送的时间，Format是秒级精度的 Unix 时间戳。 同时该时间不能与当前时间差距超过 60 秒。Timestamp
+在发送请求头部传入 ，即将请求生成签名String并用 APIv4 Secret 加密后生成的签名。 签名String生成方法参看下节，加密算法为 ， 即通过 HMAC-SHA512 加密算法，将 APIv4 Secret 作为加密密钥，签名String作为加密消息， 生成加密结果的 16 进制输出。SIGNHexEncode(HMAC_SHA512(secret, signature_string))
+确保发送请求的客户端 IP 地址在所使用的密钥的 IP 地址白名单里。
+#APIv4 签名String生成方式
+APIv4 中签名String按照如下方式拼接生成：
 
+Request Method + "\n" + Request URL + "\n" + Query String + "\n" + HexEncode(SHA512(Request Payload)) + "\n" + Timestamp
+
+#Request Method
+请求方法，全大写, 如 , POSTGET
+
+#Request URL
+请求 URL，不包括服务地址和端口，如 /api/v4/futures/orders
+
+#Query String
+没有使用 URL 编码的Request Parameters，Request Parameters在参与计算签名时的顺序一定要保证和实际请求里的顺序一致。 如 。status=finished&limit=50
+
+如果没有Request Parameters，使用空String ("")
+
+#HexEncode(SHA512(Request Payload))
+将请求体String使用 SHA512 哈希之后的结果。如果没有请求体，使用空String的哈希结果，即 cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e
+
+#Timestamp
+设置在请求头部 里的值Timestamp
+
+Example
+
+注：Example中所有的换行都是为了方便显示人为添加的，实际只有Example中的一个 保留\n
+
+假设使用的 Key 为 ，Secret 为 keysecret
+
+查询所有合约订单
+	GET /api/v4/futures/orders?contract=BTC_USD&status=finished&limit=50 HTTP/1.1
+签名String:
+
+	GET\n
+	/api/v4/futures/orders\n
+	contract=BTC_USD&status=finished&limit=50\n
+	cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e\n
+	1541993715
+Description
+
+/api/v4/futures/orders: 请求 URL
+contract=BTC_USD&status=finished&limit=50: Request Parameters，与实际请求的顺序完全一致
+请求体为空，使用空String的哈希输出
+1541993715: Unix 时间戳
+签名结果
+
+55f84ea195d6fe57ce62464daaa7c3c02fa9d1dde954e4c898289c9a2407a3d6fb3faf24deff16790d726b66ac9f74526668b13bd01029199cc4fcc522418b8a
+
+创建合约委托
+	POST /api/v4/futures/orders HTTP/1.1
+
+	{"contract":"BTC_USD","type":"limit","size":100,"price":6800,"time_in_force":"gtc"}
+签名String:
+
+	POST\n
+	/api/v4/futures/orders\n
+	\n
+	ad3c169203dc3026558f01b4df307641fa1fa361f086b2306658886d5708767b1854797c68d9e62fef2f991645aa82673622ebf417e091d0bd22bafe5d956cca\n
+	1541993715
+Description
+
+Request Parameters为空，使用空String
+使用 JSON 序列化之后的String的哈希输出
+签名结果
+
+eae42da914a590ddf727473aff25fc87d50b64783941061f47a3fdb92742541fc4c2c14017581b4199a1418d54471c269c03a38d788d802e2c306c37636389f0
+
+# coding: utf-8
+
+# Python Example验签代码
+
+"""
+本Example仅作为演示签名计算方式使用，推荐使用各语言的 SDK ，因为已经集成了验签规则
+"""
+
+# coding: utf-8
+import time
+import hashlib
+import hmac
+import requests
+import json
+
+def gen_sign(method, url, query_string=None, payload_string=None):
+    key = ''        # api_key
+    secret = ''     # api_secret
+
+    t = time.time()
+    m = hashlib.sha512()
+    m.update((payload_string or "").encode('utf-8'))
+    hashed_payload = m.hexdigest()
+    s = '%s\n%s\n%s\n%s\n%s' % (method, url, query_string or "", hashed_payload, t)
+    sign = hmac.new(secret.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
+    return {'KEY': key, 'Timestamp': str(t), 'SIGN': sign}
+
+if __name__ == "__main__":
+    host = "https://api.gateio.ws"
+    prefix = "/api/v4"
+    common_headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+
+    url = '/futures/orders'
+    body = {"contract": "BTC_USD", "size": 100, "price": "30", "tif": "gtc"}
+    request_content = json.dumps(body)
+    sign_headers = gen_sign('POST', prefix + url, "", request_content)
+    sign_headers.update(common_headers)
+    print('signature headers: %s' % sign_headers)
+    res = requests.post(host + prefix + url, headers=sign_headers, data=request_content)
+    print(res.status_code)
+    print(res.content)
